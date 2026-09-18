@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=70"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meeting-transcriber"
+version = "1.0.0"
+description = "Private, resumable local meeting transcription for Windows"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+  "faster-whisper>=1.2.1,<2",
+  "ctranslate2>=4.6,<5",
+  "av>=14,<17",
+  "rich>=13.9,<15",
+  "PyYAML>=6.0.2,<7",
+  "opencc-python-reimplemented>=0.1.7,<0.2",
+  "imageio-ffmpeg>=0.6,<0.7",
+  "PySide6-Essentials>=6.8,<7",
+  "sherpa-onnx==1.13.8",
+  "sherpa-onnx-core==1.13.8",
+  "onnxruntime>=1.28.2,<2",
+  "scikit-learn>=1.6,<2",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.3,<10"]
+
+[project.scripts]
+meeting-transcriber = "meeting_transcriber.cli:main"
+meeting-transcriber-gui = "meeting_transcriber.gui:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.uv]
+cache-dir = ".cache/uv"

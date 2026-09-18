@@ -1,0 +1,15 @@
+# Compatibility list only. Use setup.ps1 / uv sync --locked for the pinned environment.
+# Dependencies are maintained in pyproject.toml and locked in uv.lock.
+faster-whisper>=1.2.1,<2
+ctranslate2>=4.6,<5
+av>=14,<17
+rich>=13.9,<15
+PyYAML>=6.0.2,<7
+opencc-python-reimplemented>=0.1.7,<0.2
+imageio-ffmpeg>=0.6,<0.7
+pytest>=8.3,<10
+PySide6-Essentials>=6.8,<7
+sherpa-onnx==1.13.8
+sherpa-onnx-core==1.13.8
+onnxruntime>=1.28.2,<2
+scikit-learn>=1.6,<2

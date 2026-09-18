@@ -1,0 +1,58 @@
+model: medium
+language: zh
+device: auto
+compute_type: auto
+traditional_chinese: true
+beam_size: 5
+vad_filter: true
+vad_parameters:
+  min_silence_duration_ms: 500
+  speech_pad_ms: 400
+  threshold: 0.5
+
+# 每次僅解碼 5 分鐘；接續或恢復時重疊 15 秒。
+chunk_seconds: 300
+overlap_seconds: 15
+cpu_threads: 0
+offline: false
+
+# 可在 UI 勾選；0 代表自動估計人數，亦可指定 1–20。
+diarize: false
+num_speakers: 0
+speaker_threshold: 0.45
+
+output:
+  txt: true
+  timestamp_txt: true
+  srt: true
+  json: true
+  markdown: true
+
+input_dir: input
+output_dir: output
+models_dir: models
+logs_dir: logs
+# 留空時依序找 PATH、imageio-ffmpeg 隨附的執行檔。
+ffmpeg_path: null
+
+initial_prompt: >
+  本錄音為電子製造工廠 iCube 生產系統需求會議。
+  常見詞彙包括 iCube、Wafer、Waffle、晶圓、晶片、
+  載板、基板、工令、工單、批次、批號、Barcode、
+  ERP、SMT、PCB、feeder、槽位、上料、補料、
+  物料防呆、生產追溯、產品料號、材料料號。
+
+terminology:
+  iQube: iCube
+  IQube: iCube
+  icube: iCube
+  "i cube": iCube
+  "iq cube": iCube
+  waffer: Wafer
+  wafer: Wafer
+  waffle: Waffle
+  "bar code": Barcode
+  barcode: Barcode
+  pcb: PCB
+  erp: ERP
+  smt: SMT
