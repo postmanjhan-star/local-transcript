@@ -23,6 +23,16 @@ from .utils import read_json, source_identity, write_json
 
 MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
 MODEL_SHA256 = "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b"
+DIARIZATION_VERSION = 3
+MIN_REFERENCE_SECONDS = 1.5
+
+
+def speaker_vad_parameters(config: Config) -> dict[str, Any]:
+    # ASR benefits from generous silence/padding; speaker embeddings must avoid
+    # joining adjacent turns. Leave the transcription VAD configuration intact.
+    return {**config.vad_parameters,
+            "min_silence_duration_ms": min(config.vad_parameters.get("min_silence_duration_ms", 200), 200),
+            "speech_pad_ms": min(config.vad_parameters.get("speech_pad_ms", 60), 60)}
 
 
 def speech_windows(segments: list[dict[str, Any]]) -> list[tuple[float, float]]:
@@ -33,22 +43,26 @@ def speech_windows(segments: list[dict[str, Any]]) -> list[tuple[float, float]]:
                 intervals.append((float(unit["start"]), float(unit["end"])))
     merged: list[list[float]] = []
     for start, end in sorted(intervals):
-        if merged and start <= merged[-1][1] + 0.8:
+        if merged and start <= merged[-1][1]:
             merged[-1][1] = max(end, merged[-1][1])
         else:
             merged.append([start, end])
     windows = []
     for start, end in merged:
-        while end - start >= 0.5:
-            finish = min(end, start + 3)
-            windows.append((round(start, 6), round(finish, 6)))
-            if finish >= end:
-                break
-            start += 1.5
+        duration = end - start
+        if duration < 0.5:
+            continue
+        # Keep the final window full-length instead of creating a less reliable
+        # short tail of the same utterance. Never bridge a detected silence.
+        count = max(1, int(np.ceil((duration - 3) / 1.5)) + 1)
+        for offset in np.linspace(start, max(start, end - 3), count):
+            windows.append((round(float(offset), 6), round(min(end, offset + 3), 6)))
     return windows
 
 
-def cluster_embeddings(embeddings: np.ndarray, num_speakers: int, threshold: float) -> list[int]:
+def cluster_embeddings(embeddings: np.ndarray, num_speakers: int, threshold: float,
+                       durations: np.ndarray | None = None) -> list[int]:
+    """Return stable local labels; -1 means insufficient assignment evidence."""
     from sklearn.cluster import AgglomerativeClustering
 
     if len(embeddings) == 0:
@@ -57,37 +71,89 @@ def cluster_embeddings(embeddings: np.ndarray, num_speakers: int, threshold: flo
         return [0] * len(embeddings)
     normalized = embeddings / np.maximum(np.linalg.norm(embeddings, axis=1, keepdims=True), 1e-9)
     # Bound the quadratic clustering matrix for two-hour recordings and beyond.
-    selection = np.unique(np.linspace(0, len(normalized) - 1, min(2000, len(normalized)), dtype=int))
+    references = np.arange(len(normalized))
+    if not num_speakers and durations is not None:
+        reliable = references[np.asarray(durations) >= MIN_REFERENCE_SECONDS]
+        if len(reliable):
+            references = reliable
+    selection = references[np.unique(np.linspace(0, len(references) - 1, min(2000, len(references)), dtype=int))]
     sample = normalized[selection]
     count = min(num_speakers, len(sample)) if num_speakers else None
     clustering = AgglomerativeClustering(n_clusters=count, metric="cosine", linkage="average",
                                          distance_threshold=None if count else threshold)
-    sample_labels = clustering.fit_predict(sample)
-    if len(selection) == len(normalized):
-        labels = sample_labels.tolist()
-    else:
-        centroids = np.stack([sample[sample_labels == label].mean(axis=0) for label in sorted(set(sample_labels))])
-        centroids /= np.maximum(np.linalg.norm(centroids, axis=1, keepdims=True), 1e-9)
-        labels = np.argmax(normalized @ centroids.T, axis=1).tolist()
+    sample_labels = clustering.fit_predict(sample) if len(sample) > 1 else np.zeros(1, dtype=int)
+
+    def centers(labels: np.ndarray) -> np.ndarray:
+        values = np.stack([sample[labels == label].mean(axis=0) for label in sorted(set(labels))])
+        return values / np.maximum(np.linalg.norm(values, axis=1, keepdims=True), 1e-9)
+
+    centroids = centers(sample_labels)
+    if not num_speakers and len(centroids) > 1:
+        # Within-speaker variation can inflate average pairwise distance. A
+        # stricter second pass compares pooled voices; complete linkage avoids
+        # merging a chain of individually similar but distinct voices.
+        merged = AgglomerativeClustering(n_clusters=None, metric="cosine", linkage="complete",
+                                         distance_threshold=threshold * 0.8).fit_predict(centroids)
+        sample_labels = merged[sample_labels]
+        centroids = centers(sample_labels)
+        # centers() sorts labels, so compact them before restoring sample labels.
+        sample_labels = np.searchsorted(sorted(set(sample_labels)), sample_labels)
+    labels = np.empty(len(normalized), dtype=int)
+    # Bound assignment memory too, independently of recording duration.
+    for start in range(0, len(normalized), 512):
+        distances = 1 - normalized[start:start + 512] @ centroids.T
+        best = np.argmin(distances, axis=1)
+        labels[start:start + len(best)] = best
+        if not num_speakers:
+            uncertain = distances[np.arange(len(best)), best] > threshold
+            if len(centroids) > 1:
+                closest = np.partition(distances, 1, axis=1)[:, :2]
+                uncertain |= closest[:, 1] - closest[:, 0] < 0.08
+            best[uncertain] = -1
+            labels[start:start + len(best)] = best
+    # Reference windows retain the actual clustering result. Confidence gating
+    # applies to short speech and unsampled windows, not forced speaker counts.
+    labels[selection] = sample_labels
     # Stable numbering follows first appearance, not arbitrary cluster indices.
     names: dict[int, int] = {}
-    return [names.setdefault(int(label), len(names)) for label in labels]
+    return [names.setdefault(int(label), len(names)) if label >= 0 else -1 for label in labels]
 
 
 def label_segments(segments: list[dict[str, Any]], windows: list[dict[str, Any]],
                    config: Config) -> list[dict[str, Any]]:
     normalizer = TextNormalizer(config.traditional_chinese, config.terminology)
-    centers = np.array([(w["start"] + w["end"]) / 2 for w in windows])
+    windows = sorted(windows, key=lambda w: w["start"])
+    starts = np.array([w["start"] for w in windows])
+    max_duration = max((w["end"] - w["start"] for w in windows), default=0)
 
     def speaker_at(start: float, end: float) -> str:
         if not windows:
             return "UNKNOWN"
-        midpoint = (start + end) / 2
-        idx = int(np.argmin(np.abs(centers - midpoint)))
-        window = windows[idx]
-        if midpoint < window["start"] - 1 or midpoint > window["end"] + 1:
+        # Vote by actual overlap, emphasizing the center of each embedding
+        # window. A nearby center must not label words outside that window.
+        if end <= start:
+            start, end = start - 0.01, start + 0.01
+        first = int(np.searchsorted(starts, start - max_duration, side="left"))
+        last = int(np.searchsorted(starts, end, side="right"))
+        votes: dict[int, float] = {}
+        for window in windows[first:last]:
+            left, right = max(start, window["start"]), min(end, window["end"])
+            if right <= left:
+                continue
+            width = window["end"] - window["start"]
+            # Integral of a triangular center weight over the word interval.
+            def area(t: float) -> float:
+                x = (t - window["start"]) / width
+                return width * (x * x if x <= 0.5 else 0.5 - (1 - x) ** 2)
+            label = window["speaker"]
+            votes[label] = votes.get(label, 0) + area(right) - area(left)
+        if not votes:
             return "UNKNOWN"
-        return f"SPEAKER_{window['speaker'] + 1:02d}"
+        ranked = sorted(votes, key=votes.get, reverse=True)
+        label = ranked[0]
+        if label < 0 or (len(ranked) > 1 and votes[label] - votes[ranked[1]] <= 0.1 * sum(votes.values())):
+            return "UNKNOWN"
+        return f"SPEAKER_{label + 1:02d}"
 
     result = []
     for segment in segments:
@@ -98,9 +164,6 @@ def label_segments(segments: list[dict[str, Any]], windows: list[dict[str, Any]]
                            "speaker_alignment": "segment"})
             continue
         assignments = [speaker_at(w["start"], w["end"]) for w in words]
-        for i in range(1, len(words) - 1):
-            if assignments[i - 1] == assignments[i + 1] and words[i]["end"] - words[i]["start"] < 0.7:
-                assignments[i] = assignments[i - 1]
         groups: list[tuple[str, list[dict[str, Any]]]] = []
         for word, speaker in zip(words, assignments):
             if groups and groups[-1][0] == speaker:
@@ -180,8 +243,9 @@ class Diarizer:
             self.warn("部分舊逐字稿沒有逐字時間戳，會按原片段標示說話者；重新轉錄可改善切換位置。")
         # Detect speech independently of the transcript: ASR can omit words or
         # misalign timestamps, and must not determine the speaker population.
-        signature = hashlib.sha256(json.dumps([2, MODEL_SHA256, source_identity(source),
-                                   self.config.vad_parameters], sort_keys=True).encode()).hexdigest()
+        vad_parameters = speaker_vad_parameters(self.config)
+        signature = hashlib.sha256(json.dumps([DIARIZATION_VERSION, MODEL_SHA256, source_identity(source),
+                                   vad_parameters], sort_keys=True).encode()).hexdigest()
         cache = folder / "speaker-checkpoints" / signature[:16]
         cache.mkdir(parents=True, exist_ok=True)
         info = probe_audio(source)
@@ -222,7 +286,7 @@ class Diarizer:
                 with wave.open(str(chunk), "rb") as audio:
                     samples = np.frombuffer(audio.readframes(audio.getnframes()), dtype="<i2").astype(np.float32) / 32768
                 from faster_whisper.vad import VadOptions, get_speech_timestamps
-                intervals = get_speech_timestamps(samples, VadOptions(**self.config.vad_parameters))
+                intervals = get_speech_timestamps(samples, VadOptions(**vad_parameters))
                 planned = speech_windows([{"start": start + v["start"] / 16000,
                                            "end": start + v["end"] / 16000} for v in intervals])
                 if planned and extractor is None:
@@ -255,12 +319,16 @@ class Diarizer:
         self.progress(ProgressEvent("clustering"))
         records.sort(key=lambda row: row["start"])
         vectors = np.array([row["embedding"] for row in records], dtype=np.float32)
-        labels = cluster_embeddings(vectors, self.config.num_speakers, self.config.speaker_threshold)
+        durations = np.array([row["end"] - row["start"] for row in records])
+        if len(durations) and not self.config.num_speakers and not np.any(durations >= MIN_REFERENCE_SECONDS):
+            self.warn("錄音只有短語音片段，自動人數較不可靠；已知人數時可指定人數再分析。")
+        labels = cluster_embeddings(vectors, self.config.num_speakers, self.config.speaker_threshold, durations)
         labelled_windows = [{"start": row["start"], "end": row["end"], "speaker": label}
                             for row, label in zip(records, labels)]
         self.check_cancel()
         result = label_segments(segments, labelled_windows, self.config)
         write_json(folder / "diarization.json", {"model": "3D-Speaker ERes2Net Chinese", "model_sha256": MODEL_SHA256,
+                   "diarization_version": DIARIZATION_VERSION,
                    "num_speakers_requested": self.config.num_speakers, "windows": labelled_windows,
                    "speakers": sorted({s["speaker"] for s in result}), "segments": result})
         return result

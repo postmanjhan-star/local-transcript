@@ -7,6 +7,25 @@ from meeting_transcriber.errors import ModelDownloadError
 from meeting_transcriber.models import ModelManager
 
 
+@pytest.mark.parametrize("cuda_count,device,compute", [(1, "cuda", "float16"), (0, "cpu", "int8")])
+def test_auto_device_selection_with_diarization_enabled(monkeypatch, config, cuda_count, device, compute):
+    import ctranslate2
+    import faster_whisper
+    calls = []
+    manager = ModelManager(replace(config, diarize=True), lambda message: None)
+    monkeypatch.setattr(manager, "resolve_path", lambda: "local-model")
+    monkeypatch.setattr(ctranslate2, "get_cuda_device_count", lambda: cuda_count)
+    monkeypatch.setattr(ctranslate2, "get_supported_compute_types", lambda device: {"float16"})
+    def load(path, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace()
+    monkeypatch.setattr(faster_whisper, "WhisperModel", load)
+    manager.ensure_loaded()
+    assert len(calls) == 1
+    assert (calls[0]["device"], calls[0]["compute_type"]) == (device, compute)
+    assert (manager.device, manager.compute_type) == (device, compute)
+
+
 def test_cuda_init_failure_falls_back(monkeypatch, config):
     import ctranslate2
     import faster_whisper

@@ -91,8 +91,12 @@ class Transcriber:
         self.events(ProgressEvent("transcribing", done, total, self.manager.device))
 
     def export_options(self) -> dict[str, Any]:
-        return {"diarize": self.config.diarize, "num_speakers": self.config.num_speakers if self.config.diarize else 0,
-                "speaker_threshold": self.config.speaker_threshold if self.config.diarize else 0}
+        options = {"diarize": self.config.diarize, "num_speakers": self.config.num_speakers if self.config.diarize else 0,
+                   "speaker_threshold": self.config.speaker_threshold if self.config.diarize else 0}
+        if self.config.diarize:
+            from .diarization import DIARIZATION_VERSION
+            options["diarization_version"] = DIARIZATION_VERSION
+        return options
 
     def transcribe(self, source: Path, force: bool = False) -> TranscriptionResult:
         started = time.monotonic()
