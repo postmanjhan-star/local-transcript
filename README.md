@@ -218,7 +218,10 @@ output/新錄音/
 
 仍使用 Faster-Whisper，不需要任何雲端 API、Token 或訂閱費。低階 CPU 可維持 `small` 或 `medium` + CPU int8；GPU 不作為必要條件。首次下載開源模型需要網路，快取後可用 `--offline`。
 
-- GUI「辨識關鍵詞」可針對每次錄音填入少量真實術語，例如 `iCube SMT 料站表`。不保證正確，且不會覆寫原始 `raw_text`。
+- **自動辨識詞庫**：啟動時將 `config.yaml` 的 `vocabulary`（通用術語）、`terminology` 的正確寫法，以及本機的 `vocabulary.local.txt` 合併去重，自動送給 Faster-Whisper；每次打開 GUI 不必重填。
+- **私人術語**：專案根目錄建立 `vocabulary.local.txt`，每行一個詞，可用 `#` 開頭寫註解。這個檔案已被 `.gitignore` 排除，不要使用 `git add -f` 將內部資料上傳到公開儲存庫。
+- GUI「辨識關鍵詞」僅用於**本次額外補充**，例如 `iCube, Reel ID`；多字英文詞請以逗號分開，避免 `Reel ID` 被拆成兩個詞。
+- 詞彙為模型的辨識提示，不是保證；詞表過長或包含不相關的詞也可能導致誤辨。原始 `raw_text` 仍保留。
 - GUI「連貫上下文（實驗性）」預設關閉；僅在有人工校對樣本後嘗試啟用。此參數只影響每次呼叫模型的音訊區段內上下文，不會跨越 300 秒獨立視窗。
 - CLI 亦可輸入 `--hotwords "iCube SMT 料站表"`、`--context`。
 - 更動辨識參數會改變 checkpoint fingerprint。重新轉錄時先封存舊資料，不會靜默覆蓋。
