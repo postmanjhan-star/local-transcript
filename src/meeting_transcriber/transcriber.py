@@ -8,7 +8,7 @@ import time
 from typing import Any, Callable
 
 from .audio import extract_chunk, find_ffmpeg, probe_audio
-from .config import Config
+from .config import Config, effective_hotwords
 from .errors import CancelledError, CheckpointError, TranscriberError
 from .formatter import TextNormalizer, expected_outputs, suspicious_reasons, write_outputs
 from .models import ModelManager
@@ -228,9 +228,11 @@ class Transcriber:
             try:
                 iterator, _ = self.manager.model.transcribe(
                     str(path), language=self.config.language, beam_size=self.config.beam_size,
-                    initial_prompt=self.config.initial_prompt or None, vad_filter=self.config.vad_filter,
+                    initial_prompt=self.config.initial_prompt or None, hotwords=effective_hotwords(self.config) or None,
+                    vad_filter=self.config.vad_filter,
                     vad_parameters=dict(self.config.vad_parameters), word_timestamps=True,
-                    condition_on_previous_text=False, task="transcribe")
+                    condition_on_previous_text=self.config.condition_on_previous_text,
+                    task="transcribe")
                 while True:
                     self.check_cancel()
                     # Only inference failures trigger CUDA fallback; disk-write failures must propagate.

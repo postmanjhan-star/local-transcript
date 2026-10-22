@@ -26,6 +26,9 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--config", type=Path, default=Path(__file__).resolve().parents[2] / "config.yaml")
     result.add_argument("--model", help="small / medium / large-v3，或本機模型目錄")
     result.add_argument("--language", help="預設 zh")
+    result.add_argument("--hotwords", help="本次錄音可能出現的術語；只做提示，不會覆寫原文")
+    result.add_argument("--context", action="store_true", default=None,
+                        help="啟用區段內連貫上下文（實驗性，可能引起重複文字）")
     result.add_argument("--device", choices=["auto", "cpu", "cuda"])
     result.add_argument("--compute-type")
     result.add_argument("--output-dir", type=Path)
@@ -85,7 +88,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         config = load_config(args.config, {"model": args.model, "language": args.language,
                              "device": args.device, "compute_type": args.compute_type, "offline": args.offline,
-                             "diarize": args.diarize, "num_speakers": args.num_speakers})
+                             "diarize": args.diarize, "num_speakers": args.num_speakers,
+                             "hotwords": args.hotwords, "condition_on_previous_text": args.context})
         if args.output_dir:
             config = replace(config, output_dir=args.output_dir.resolve())
         for folder in (config.input_dir, config.output_dir, config.models_dir, config.logs_dir):

@@ -166,3 +166,20 @@ def test_reserved_recording_names(monkeypatch, tmp_path, config, name):
     assert read_json(result.folder / "metadata.json")["completed"]
     assert read_json(result.folder / "checkpoint.json")["processed_until"] == 30
     assert len(read_json(result.folder / f"{name}.transcript.json")["segments"]) == 2
+
+
+def test_hotwords_and_context_forwarded(monkeypatch, tmp_path, config):
+    config = replace(config, hotwords="iCube SMT 料站表", condition_on_previous_text=True)
+    source, worker, _ = prepare(monkeypatch, tmp_path, config, 30)
+    captured = {}
+    def transcribe(*args, **kwargs):
+        captured.update(kwargs)
+        return iter([fake_segment(1, 3)]), None
+    worker.manager.model.transcribe = transcribe
+    worker.transcribe(source)
+    from meeting_transcriber.config import effective_hotwords
+    assert captured["hotwords"] == effective_hotwords(config)
+    assert captured["hotwords"].startswith("iCube, SMT, 料站表")
+    assert captured["hotwords"].split(", ").count("SMT") == 1
+    assert captured["condition_on_previous_text"] is True
+    assert captured["language"] == "zh"

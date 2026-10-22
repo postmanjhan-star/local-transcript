@@ -44,6 +44,9 @@ class Config:
     logs_dir: Path = Path("logs")
     ffmpeg_path: str | None = None
     initial_prompt: str = ""
+    hotwords: str = ""
+    vocabulary: list[str] = field(default_factory=list)
+    condition_on_previous_text: bool = False
     terminology: dict[str, str] = field(default_factory=dict)
 
     def fingerprint(self) -> str:
@@ -98,7 +101,7 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> Config:
     if cfg.compute_type not in {"auto", "int8", "int8_float16", "int8_float32", "int8_bfloat16",
                                 "float16", "float32", "bfloat16", "int16", "default"}:
         raise ConfigError("compute_type 不受支援。")
-    for key in ("traditional_chinese", "vad_filter", "offline", "diarize"):
+    for key in ("traditional_chinese", "vad_filter", "offline", "diarize", "condition_on_previous_text"):
         if type(getattr(cfg, key)) is not bool:
             raise ConfigError(f"{key} 必須是 true / false。")
     _number(cfg.beam_size, "beam_size", 1, 20, True)
@@ -109,6 +112,12 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> Config:
     _number(cfg.overlap_seconds, "overlap_seconds", 0, min(30, cfg.chunk_seconds / 2))
     if not isinstance(cfg.initial_prompt, str):
         raise ConfigError("initial_prompt 必須為字串。")
+    if not isinstance(cfg.hotwords, str):
+        raise ConfigError("hotwords 必須為字串。")
+    if not isinstance(cfg.vocabulary, list) or any(
+        not isinstance(term, str) or not term.strip() for term in cfg.vocabulary
+    ):
+        raise ConfigError("vocabulary 必須為非空字串清單。")
     if not isinstance(cfg.terminology, dict) or any(
         not isinstance(k, str) or not k.strip() or not isinstance(v, str) or not v.strip()
         for k, v in cfg.terminology.items()
@@ -135,7 +144,47 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> Config:
     updates: dict[str, Any] = {}
     if cfg.ffmpeg_path and not Path(cfg.ffmpeg_path).is_absolute():
         updates["ffmpeg_path"] = str((path.parent / cfg.ffmpeg_path).resolve())
+    # Keep private vocabulary on disk next to YAML, never in public config.yaml.
+    # Its contents become part of the recognition fingerprint on startup.
+    local_vocab_path = path.resolve().parent / "vocabulary.local.txt"
+    if local_vocab_path.is_file():
+        try:
+            private_terms = [line.strip() for line in local_vocab_path.read_text(encoding="utf-8-sig").splitlines()
+                             if line.strip() and not line.lstrip().startswith("#")]
+        except (OSError, UnicodeError) as exc:
+            raise ConfigError(f"無法讀取本地私人詞庫 {local_vocab_path}：{exc}") from exc
+        updates["vocabulary"] = [*cfg.vocabulary, *private_terms]
     candidate = (path.parent / cfg.model).resolve()
     if candidate.is_dir():
         updates["model"] = str(candidate)
     return replace(cfg, **updates)
+
+
+def hotword_terms(config: Config) -> list[str]:
+    """Merge local vocabulary, canonical spellings and per-run additions, deduplicated.
+
+    Alias keys are recognition mistakes, not target vocabulary. Keep only their
+    canonical values so Whisper isn't prompted to produce misspellings.
+    """
+    import re
+    manual = config.hotwords.strip()
+    if any(sep in manual for sep in (",", "，", "、", ";", "；", "\n")):
+        extras = re.split(r"[,，、;；\n]+", manual)
+    else:
+        # Backwards-compatible with earlier CLI examples like "iCube SMT 料站表".
+        extras = manual.split()
+    ordered = [*extras, *config.vocabulary, *config.terminology.values()]
+    seen: set[str] = set()
+    result: list[str] = []
+    for word in ordered:
+        word = word.strip()
+        key = word.casefold()
+        if word and key not in seen:
+            result.append(word)
+            seen.add(key)
+    return result
+
+
+def effective_hotwords(config: Config) -> str:
+    """Get final ASR hint text without ever changing output text."""
+    return ", ".join(hotword_terms(config))

@@ -10,12 +10,12 @@ from typing import Any
 from PySide6.QtCore import Qt, QThread, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QCloseEvent, QDesktopServices, QDragEnterEvent, QDropEvent, QFont, QFontDatabase
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QFileDialog,
-    QFrame, QHBoxLayout, QHeaderView, QLabel, QMainWindow, QMessageBox, QPlainTextEdit,
+    QFrame, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPlainTextEdit,
     QProgressBar, QPushButton, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget)
 
 from .audio import SUPPORTED_EXTENSIONS
-from .config import Config, load_config
+from .config import Config, load_config, hotword_terms
 from .errors import CancelledError
 from .formatter import elapsed_label, expected_outputs
 from .progress import ProgressEvent, TimeEstimator
@@ -220,6 +220,21 @@ class MainWindow(QMainWindow):
         self.force.setToolTip("先備份既有結果，再從頭辨識。一般重試或切換說話者選項不需要勾選。")
         choices.addWidget(self.force)
         settings_layout.addLayout(choices)
+        terms_row = QHBoxLayout()
+        terms_row.addWidget(label("辨識關鍵詞"))
+        self.hotwords = QLineEdit()
+        self.hotwords.setText(self.config.hotwords)
+        self.hotwords.setPlaceholderText("選填：補充這次會議的專有名詞，不必重複預設詞庫")
+        self.hotwords.setToolTip("自動載入 config.yaml 的 vocabulary、terminology 正確寫法，以及本機 vocabulary.local.txt；這裡只需額外補充。")
+        terms_row.addWidget(self.hotwords, 1)
+        self.vocabulary_label = label(f"自動詞庫 {len(hotword_terms(self.config))} 詞")
+        self.vocabulary_label.setToolTip("包含通用製造詞彙及本地私有詞彙；輸入框只用來額外補充。")
+        terms_row.addWidget(self.vocabulary_label)
+        self.context = QCheckBox("連貫上下文（實驗性）")
+        self.context.setChecked(self.config.condition_on_previous_text)
+        self.context.setToolTip("可能改善連貫性，也可能導致重複或幻覺；建議先維持關閉。")
+        terms_row.addWidget(self.context)
+        settings_layout.addLayout(terms_row)
         settings_layout.addWidget(label("說話者以 1、2… 標示，不辨識姓名；短句或同時發言可能不準確。首次使用會下載模型。", "muted"))
         layout.addWidget(settings)
 
@@ -373,7 +388,8 @@ class MainWindow(QMainWindow):
         self.show_selected_result()
 
     def _set_running(self, running: bool) -> None:
-        for control in (self.drop_zone, self.model, self.diarize, self.offline, self.force, self.remove_button):
+        for control in (self.drop_zone, self.model, self.diarize, self.offline, self.force,
+                        self.hotwords, self.context, self.remove_button):
             control.setEnabled(not running)
         self.speakers.setEnabled(not running and self.diarize.isChecked())
         self.start_button.setEnabled(not running and bool(self.files))
@@ -385,7 +401,9 @@ class MainWindow(QMainWindow):
         if self.worker or not self.files:
             return
         settings = replace(self.config, model=self.model.currentData(), diarize=self.diarize.isChecked(),
-                           num_speakers=self.speakers.value(), offline=self.offline.isChecked())
+                           num_speakers=self.speakers.value(), offline=self.offline.isChecked(),
+                            hotwords=self.hotwords.text().strip(),
+                            condition_on_previous_text=self.context.isChecked())
         self.log.clear()
         self.results.clear()
         self.live_text.clear()
