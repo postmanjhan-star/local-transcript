@@ -42,6 +42,46 @@ hotwords: ""
 # 預設關閉，以免長句或靜音時產生重複、幻覺。
 condition_on_previous_text: false
 
+# Auto-loaded general factory terms from earlier meeting themes.
+# Add confidential project terms only to vocabulary.local.txt on your own PC.
+vocabulary:
+  - SMT
+  - MES
+  - WMS
+  - ERP
+  - PCB
+  - BOM
+  - IPQC
+  - Panasonic
+  - Fuji
+  - Barcode
+  - QR Code
+  - Reel ID
+  - Wafer
+  - Waffle
+  - TRAY
+  - feeder
+  - 工單
+  - 工令
+  - 批號
+  - 批次
+  - 料站表
+  - 站位
+  - 料號
+  - 上料
+  - 接料
+  - 卸料
+  - 生產追溯
+  - 生產管理
+  - 扣料
+  - 投料
+  - 物料防呆
+  - 過站
+  - 掃碼
+  - 工單發料
+  - 剩餘量
+
+
 terminology:
   iQube: iCube
   IQube: iCube
