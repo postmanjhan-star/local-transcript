@@ -212,3 +212,25 @@ output/新錄音/
 - 來源辨識用絕對路徑、大小和 nanosecond mtime，沒有逐 byte 雜湊；若自行修改檔案並刻意維持這些屬性，請用 `--force`。
 - 系統當機的持久化程度也受磁碟與作業系統影響；請另行備份原始錄音。所有 partial/history 都保留，會佔用額外磁碟。
 - 本專案不附使用者的 56 分鐘中文會議錄音；辨識品質與實際硬體速度須以自己的錄音驗收。測試結果及執行環境記錄見 `VALIDATION.md`。
+
+
+## 本地語音辨識品質測試（免費、離線）
+
+仍使用 Faster-Whisper，不需要任何雲端 API、Token 或訂閱費。低階 CPU 可維持 `small` 或 `medium` + CPU int8；GPU 不作為必要條件。首次下載開源模型需要網路，快取後可用 `--offline`。
+
+- GUI「辨識關鍵詞」可針對每次錄音填入少量真實術語，例如 `iCube SMT 料站表`。不保證正確，且不會覆寫原始 `raw_text`。
+- GUI「連貫上下文（實驗性）」預設關閉；僅在有人工校對樣本後嘗試啟用。此參數只影響每次呼叫模型的音訊區段內上下文，不會跨越 300 秒獨立視窗。
+- CLI 亦可輸入 `--hotwords "iCube SMT 料站表"`、`--context`。
+- 更動辨識參數會改變 checkpoint fingerprint。重新轉錄時先封存舊資料，不會靜默覆蓋。
+- 預設 `initial_prompt` 已簡化，避免同時提示容易混淆且不一定出現的詞。
+
+### 比較字元錯誤率 CER
+
+自行聽寫一段 1–5 分鐘真實錄音，儲存為 `reference.txt`。用本程式輸出同段錄音的 JSON 後執行：
+
+```powershell
+python scripts/measure_cer.py reference.txt output/錄音檔名/錄音檔名.json
+python scripts/measure_cer.py reference.txt output/錄音檔名/錄音檔名.json --raw
+```
+
+工具完全離線、只用標準函式庫。預設 NFKC 正規化、忽略空白及標點，並以編輯距離除以參考字數計算 CER。若語句涉及否定詞、數量、決議或爭議，仍須依原始錄音及時間戳人工核對。
