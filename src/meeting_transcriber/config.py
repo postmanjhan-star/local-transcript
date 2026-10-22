@@ -44,6 +44,8 @@ class Config:
     logs_dir: Path = Path("logs")
     ffmpeg_path: str | None = None
     initial_prompt: str = ""
+    hotwords: str = ""
+    condition_on_previous_text: bool = False
     terminology: dict[str, str] = field(default_factory=dict)
 
     def fingerprint(self) -> str:
@@ -98,7 +100,7 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> Config:
     if cfg.compute_type not in {"auto", "int8", "int8_float16", "int8_float32", "int8_bfloat16",
                                 "float16", "float32", "bfloat16", "int16", "default"}:
         raise ConfigError("compute_type 不受支援。")
-    for key in ("traditional_chinese", "vad_filter", "offline", "diarize"):
+    for key in ("traditional_chinese", "vad_filter", "offline", "diarize", "condition_on_previous_text"):
         if type(getattr(cfg, key)) is not bool:
             raise ConfigError(f"{key} 必須是 true / false。")
     _number(cfg.beam_size, "beam_size", 1, 20, True)
@@ -109,6 +111,8 @@ def load_config(path: Path, overrides: dict[str, Any] | None = None) -> Config:
     _number(cfg.overlap_seconds, "overlap_seconds", 0, min(30, cfg.chunk_seconds / 2))
     if not isinstance(cfg.initial_prompt, str):
         raise ConfigError("initial_prompt 必須為字串。")
+    if not isinstance(cfg.hotwords, str):
+        raise ConfigError("hotwords 必須為字串。")
     if not isinstance(cfg.terminology, dict) or any(
         not isinstance(k, str) or not k.strip() or not isinstance(v, str) or not v.strip()
         for k, v in cfg.terminology.items()
