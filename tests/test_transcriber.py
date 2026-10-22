@@ -177,6 +177,9 @@ def test_hotwords_and_context_forwarded(monkeypatch, tmp_path, config):
         return iter([fake_segment(1, 3)]), None
     worker.manager.model.transcribe = transcribe
     worker.transcribe(source)
-    assert captured["hotwords"] == "iCube, SMT, 料站表, Wafer, Waffle, Barcode, PCB, ERP"
+    from meeting_transcriber.config import effective_hotwords
+    assert captured["hotwords"] == effective_hotwords(config)
+    assert captured["hotwords"].startswith("iCube, SMT, 料站表")
+    assert captured["hotwords"].split(", ").count("SMT") == 1
     assert captured["condition_on_previous_text"] is True
     assert captured["language"] == "zh"
