@@ -36,11 +36,11 @@ logs_dir: logs
 ffmpeg_path: null
 
 initial_prompt: >
-  本錄音為電子製造工廠 iCube 生產系統需求會議。
-  常見詞彙包括 iCube、Wafer、Waffle、晶圓、晶片、
-  載板、基板、工令、工單、批次、批號、Barcode、
-  ERP、SMT、PCB、feeder、槽位、上料、補料、
-  物料防呆、生產追溯、產品料號、材料料號。
+  這是一段台灣電子製造業的中文會議錄音，討論工單、物料、機台和資訊系統。
+# 只填本次錄音可能出現的字詞，過多無關詞可能降低辨識品質。
+hotwords: ""
+# 預設關閉，以免長句或靜音時產生重複、幻覺。
+condition_on_previous_text: false
 
 terminology:
   iQube: iCube
