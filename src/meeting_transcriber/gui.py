@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
     QVBoxLayout, QWidget)
 
 from .audio import SUPPORTED_EXTENSIONS
-from .config import Config, load_config
+from .config import Config, load_config, hotword_terms
 from .errors import CancelledError
 from .formatter import elapsed_label, expected_outputs
 from .progress import ProgressEvent, TimeEstimator
@@ -224,9 +224,12 @@ class MainWindow(QMainWindow):
         terms_row.addWidget(label("辨識關鍵詞"))
         self.hotwords = QLineEdit()
         self.hotwords.setText(self.config.hotwords)
-        self.hotwords.setPlaceholderText("只填這次錄音可能出現的詞，例如 iCube SMT 料站表")
-        self.hotwords.setToolTip("僅提示開源模型，不能保證辨識正確；原始辨識文字仍會保留。")
+        self.hotwords.setPlaceholderText("選填：補充這次會議的專有名詞，不必重複預設詞庫")
+        self.hotwords.setToolTip("自動載入 config.yaml 的 vocabulary、terminology 正確寫法，以及本機 vocabulary.local.txt；這裡只需額外補充。")
         terms_row.addWidget(self.hotwords, 1)
+        self.vocabulary_label = label(f"自動詞庫 {len(hotword_terms(self.config))} 詞")
+        self.vocabulary_label.setToolTip("包含通用製造詞彙及本地私有詞彙；輸入框只用來額外補充。")
+        terms_row.addWidget(self.vocabulary_label)
         self.context = QCheckBox("連貫上下文（實驗性）")
         self.context.setChecked(self.config.condition_on_previous_text)
         self.context.setToolTip("可能改善連貫性，也可能導致重複或幻覺；建議先維持關閉。")
