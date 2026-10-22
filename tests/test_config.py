@@ -31,3 +31,18 @@ def test_fingerprint(config):
     assert config.fingerprint() == replace(config, offline=True, device="cpu").fingerprint()
     assert config.fingerprint() != replace(config, model="small").fingerprint()
     assert config.fingerprint() != replace(config, terminology={"wafer": "Wafer"}).fingerprint()
+
+
+def test_asr_hints_validated_and_fingerprinted(tmp_path):
+    from dataclasses import replace
+    path = tmp_path / "config.yaml"
+    path.write_text("hotwords: 'SMT MES 料站表'\ncondition_on_previous_text: true\n", encoding="utf-8")
+    cfg = load_config(path)
+    assert cfg.hotwords == "SMT MES 料站表"
+    assert cfg.condition_on_previous_text
+    assert cfg.fingerprint() != replace(cfg, hotwords="").fingerprint()
+    assert cfg.fingerprint() != replace(cfg, condition_on_previous_text=False).fingerprint()
+    for invalid in ("hotwords: []", "condition_on_previous_text: 'true'"):
+        path.write_text(invalid, encoding="utf-8")
+        with pytest.raises(ConfigError):
+            load_config(path)
