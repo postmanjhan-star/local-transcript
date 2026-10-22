@@ -168,8 +168,8 @@ def hotword_terms(config: Config) -> list[str]:
     """
     import re
     manual = config.hotwords.strip()
-    if any(separator in manual for separator in ",，、;；\\n"):
-        extras = re.split(r"[,，、;；\\n]+", manual)
+    if any(sep in manual for sep in (",", "，", "、", ";", "；", "\n")):
+        extras = re.split(r"[,，、;；\n]+", manual)
     else:
         # Backwards-compatible with earlier CLI examples like "iCube SMT 料站表".
         extras = manual.split()
